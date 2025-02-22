@@ -54,11 +54,16 @@ public class SalesAnalytics {
     private void processTransaction(Transaction t) {
         LocalDate date = t.getTimestamp().toLocalDate();
         int volume = t.getProducts().values().stream().mapToInt(Integer::intValue).sum();
+
+        // Update daily sales volume
         dailySalesVolume.merge(date, volume, Integer::sum);
+
+        // Update daily sales value
         dailySalesValue.merge(date, t.getSaleAmount(), Double::sum);
 
         // Update product volumes
-        t.getProducts().forEach((productId, qty) -> productVolumes.merge(productId, qty, Integer::sum));
+        t.getProducts().forEach((productId, qty) ->
+            productVolumes.merge(productId, qty, Integer::sum));
 
         // Update monthly staff sales
         YearMonth month = YearMonth.from(t.getTimestamp());
@@ -67,7 +72,8 @@ public class SalesAnalytics {
 
         // Update hourly transactions
         int hour = t.getTimestamp().getHour();
-        hourlyTransactions.computeIfAbsent(hour, k -> new ArrayList<>()).add(volume);
+        hourlyTransactions.computeIfAbsent(hour, k -> new ArrayList<>())
+                         .add(volume);
     }
 
     public String getDayWithHighestSalesVolume() {
