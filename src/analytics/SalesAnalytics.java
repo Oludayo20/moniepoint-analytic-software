@@ -46,37 +46,89 @@ public class SalesAnalytics {
                     processTransaction(transaction);
                 } catch (TransactionParseException e) {
                     System.err.println("Error parsing transaction at " + file.getName() + " line " + lineNumber + ": " + e.getMessage());
+                    throw e; // Re-throw the exception after logging
                 }
             }
         }
     }
 
     private void processTransaction(Transaction t) {
-        LocalDate date = t.getTimestamp().toLocalDate();
-        int volume = t.getProducts().values().stream().mapToInt(Integer::intValue).sum();
+        if (t == null) {
+            throw new IllegalArgumentException("Transaction cannot be null");
+        }
 
-        // Update daily sales volume
-        dailySalesVolume.merge(date, volume, Integer::sum);
+        try {
+            // Extract relevant transaction details
+            LocalDate date = t.getTimestamp().toLocalDate();
+            YearMonth month = YearMonth.from(t.getTimestamp());
+            int hour = t.getTimestamp().getHour();
+            double saleAmount = t.getSaleAmount();
+            String staffId = t.getStaffId();
+            Map<String, Integer> products = t.getProducts();
 
-        // Update daily sales value
-        dailySalesValue.merge(date, t.getSaleAmount(), Double::sum);
+            // Calculate total product volume for the transaction
+            int totalVolume = calculateTotalVolume(products);
 
-        // Update product volumes
-        t.getProducts().forEach((productId, qty) ->
-            productVolumes.merge(productId, qty, Integer::sum));
+            // Update daily sales metrics
+            updateDailySales(date, totalVolume, saleAmount);
 
-        // Update monthly staff sales
-        YearMonth month = YearMonth.from(t.getTimestamp());
-        monthlyStaffSales.computeIfAbsent(month, k -> new HashMap<>())
-                         .merge(t.getStaffId(), t.getSaleAmount(), Double::sum);
+            // Update product-wise sales volume
+            updateProductVolumes(products);
 
-        // Update hourly transactions
-        int hour = t.getTimestamp().getHour();
-        hourlyTransactions.computeIfAbsent(hour, k -> new ArrayList<>())
-                         .add(volume);
+            // Update monthly staff sales data
+            updateMonthlyStaffSales(month, staffId, saleAmount);
+
+            // Track hourly transaction volumes
+            updateHourlyTransactions(hour, totalVolume);
+
+        } catch (Exception e) {
+            System.err.println("Error processing transaction: " + e.getMessage());
+        }
     }
 
+    private int calculateTotalVolume(Map<String, Integer> products) {
+        return products.values().stream()
+            .filter(quantity -> quantity != null)
+            .mapToInt(Integer::intValue)
+            .sum();
+    }
+
+    private void updateDailySales(LocalDate date, int volume, double amount) {
+        if (date != null) {
+            int currentVolume = dailySalesVolume.getOrDefault(date, 0);
+            dailySalesVolume.put(date, currentVolume + volume);
+
+            double currentValue = dailySalesValue.getOrDefault(date, 0.0);
+            dailySalesValue.put(date, currentValue + amount);
+        }
+    }
+
+    private void updateProductVolumes(Map<String, Integer> products) {
+        products.forEach((productId, quantity) -> {
+            if (productId != null && quantity != null) {
+                int currentQuantity = productVolumes.getOrDefault(productId, 0);
+                productVolumes.put(productId, currentQuantity + quantity);
+            }
+        });
+    }
+
+    private void updateMonthlyStaffSales(YearMonth month, String staffId, double amount) {
+        if (month != null && staffId != null) {
+            Map<String, Double> staffSales = monthlyStaffSales.computeIfAbsent(month, k -> new HashMap<>());
+            double currentAmount = staffSales.getOrDefault(staffId, 0.0);
+            staffSales.put(staffId, currentAmount + amount);
+        }
+    }
+
+    private void updateHourlyTransactions(int hour, int volume) {
+        List<Integer> volumes = hourlyTransactions.computeIfAbsent(hour, k -> new ArrayList<>());
+        volumes.add(volume);
+    }
+
+
+
     public String getDayWithHighestSalesVolume() {
+        System.out.println(dailySalesVolume);
         return dailySalesVolume.entrySet().stream()
                 .max(Map.Entry.comparingByValue())
                 .map(e -> String.format("Highest Sales Volume: %s - %d items", e.getKey(), e.getValue()))
